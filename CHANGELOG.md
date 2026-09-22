@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.1 (2026-09-22)
+
+### Fixes
+
+* Run as the numeric UID 10001 instead of the user name `mcp`: Kubernetes rejects `runAsNonRoot` when the image sets a non-numeric user ("cannot verify user is non-root").
+
 ## 0.1.0 (2026-09-22)
 
 ### Features

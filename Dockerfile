@@ -9,7 +9,7 @@ RUN pip install --no-cache-dir . \
     && mkdir -p /home/mcp/outbox \
     && chown -R mcp:mcp /home/mcp
 
-USER mcp
+USER 10001
 
 EXPOSE 8000
 
