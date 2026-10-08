@@ -1,6 +1,7 @@
 """Parity with barryw/PaperlessMCP v0.6.0: same 44 tool names, same parameter
 names per tool — ported from PaperlessMCP.Tests/Tools/ToolNamingTests.cs plus
 a parameter-name snapshot taken directly from each *Tools.cs signature.
+One extension on top: paperless_documents_thumbnail_image (45 in total).
 """
 
 import pytest
