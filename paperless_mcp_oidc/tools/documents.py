@@ -8,15 +8,20 @@ from __future__ import annotations
 
 import base64
 import contextlib
+import json
 import uuid
 from pathlib import Path, PurePosixPath
 from typing import Any
+
+import httpx
+from mcp.types import ImageContent, TextContent
 
 from ..client import (
     MAX_INLINE_BASE64_BYTES,
     PaperlessError,
     PaperlessNotAllowed,
 )
+from ..config import settings
 from ..parsing import (
     fallback_title,
     parse_date,
@@ -30,6 +35,9 @@ from ..server import get_client, mcp
 from ._common import bulk_result, simple_delete
 
 DOCUMENTS_PATH = "/api/documents/"
+
+# Thumbnails are small WebP/PNG images; anything bigger is not worth inlining.
+MAX_THUMBNAIL_BYTES = 512 * 1024
 
 VALID_BULK_OPERATIONS = (
     "add_tag",
@@ -328,6 +336,62 @@ async def paperless_documents_thumbnail(id: int) -> dict:  # noqa: A002
     return ok(
         {"id": id, "title": doc.get("title", ""), "thumbnail_url": info["thumbnail_url"]}, client.base_url
     )
+
+
+def _error_text(code: str, message: str, base_url: str) -> list[ImageContent | TextContent]:
+    return [TextContent(type="text", text=json.dumps(error(code, message, base_url)))]
+
+
+@mcp.tool(
+    name="paperless_documents_thumbnail_image",
+    description=(
+        "Get a document's thumbnail as an image plus compact metadata (id, title, created, "
+        "correspondent id, document type id, link to the document). Read-only."
+    ),
+)
+async def paperless_documents_thumbnail_image(id: int) -> list[ImageContent | TextContent]:  # noqa: A002
+    client = await get_client()
+    base = client.base_url
+    try:
+        doc = await client.get_or_none(f"{DOCUMENTS_PATH}{id}/")
+        if doc is None:
+            return _error_text(ErrorCodes.NOT_FOUND, f"Document with ID {id} not found", base)
+        content, content_type = await client.get_thumbnail(id)
+    except PaperlessNotAllowed:
+        return [TextContent(type="text", text=json.dumps(not_allowed_error(base)))]
+    except PaperlessError as exc:
+        code = ErrorCodes.NOT_FOUND if exc.status_code == 404 else ErrorCodes.UPSTREAM_ERROR
+        return _error_text(code, f"Failed to fetch thumbnail of document {id}: {exc}", base)
+    except httpx.HTTPError as exc:
+        return _error_text(
+            ErrorCodes.UPSTREAM_ERROR,
+            f"Could not reach Paperless for document {id}: {type(exc).__name__}",
+            base,
+        )
+
+    if len(content) > MAX_THUMBNAIL_BYTES:
+        return _error_text(
+            ErrorCodes.VALIDATION,
+            f"Thumbnail is {len(content)} bytes; too large to inline (limit {MAX_THUMBNAIL_BYTES}).",
+            base,
+        )
+
+    meta: dict[str, Any] = {
+        "id": id,
+        "title": doc.get("title", ""),
+        "created": doc.get("created"),
+        "correspondent": doc.get("correspondent"),
+        "document_type": doc.get("document_type"),
+    }
+    public = settings.paperless_public_url.rstrip("/")
+    if public:
+        meta["url"] = f"{public}/documents/{id}/details"
+
+    mime = (content_type or "image/webp").split(";")[0].strip()
+    return [
+        ImageContent(type="image", data=base64.b64encode(content).decode("ascii"), mimeType=mime),
+        TextContent(type="text", text=json.dumps(meta, separators=(",", ":"))),
+    ]
 
 
 @mcp.tool(

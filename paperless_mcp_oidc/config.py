@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     # when PAPERLESS_BASE_URL is an in-cluster service URL but Paperless'
     # ALLOWED_HOSTS is the public name.
     paperless_host_header: str = ""
+    # Optional browser-facing Paperless URL, used only to build the `url`
+    # deep link of paperless_documents_thumbnail_image. Omitted when unset.
+    paperless_public_url: str = ""
 
     # --- token mode ------------------------------------------------------
     paperless_api_token: str = ""

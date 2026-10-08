@@ -4,7 +4,8 @@ A drop-in replacement for [barryw/PaperlessMCP](https://github.com/barryw/Paperl
 (v0.6.0) with **one** difference: every call acts as the calling person
 (Keycloak/OIDC identity passthrough) instead of a shared Paperless API token.
 
-Same 44 tools, same names, same parameter names/defaults, same result shapes —
+Same 44 tools (plus the extension `paperless_documents_thumbnail_image`, see
+[Extensions](#extensions)), same names, same parameter names/defaults, same result shapes —
 existing clients and a gateway allowlist keep working unchanged. See
 [Parity](#parity-with-barrywpaperlessmcp) below.
 
@@ -84,6 +85,7 @@ server (no IdP available). It does not require any `OIDC_*` setting.
 |---|---|---|---|
 | `PAPERLESS_BASE_URL` | both | — (required) | Paperless-ngx instance URL |
 | `PAPERLESS_HOST_HEADER` | both | *(unset)* | Sent as the `Host` header on every Paperless request — needed when `PAPERLESS_BASE_URL` is an in-cluster service URL but Paperless' `ALLOWED_HOSTS` is the public name |
+| `PAPERLESS_PUBLIC_URL` | both | *(unset)* | Browser-facing Paperless URL, used only for the `url` deep link of `paperless_documents_thumbnail_image`; the link is omitted when unset |
 | `AUTH_MODE` | both | `oidc` | `oidc` or `token` |
 | `OIDC_JWKS_URI` | oidc | — (required) | Keycloak JWKS endpoint (inbound token verification) |
 | `OIDC_ISSUER` | oidc | — (required) | Keycloak realm issuer URL (inbound token verification) |
@@ -234,3 +236,14 @@ uvx ruff check .
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Extensions
+
+- **`paperless_documents_thumbnail_image`** (`{id}`): fetches
+  `GET /api/documents/<id>/thumb/` as the calling person and returns an MCP
+  content list: one `ImageContent` (base64, the `mimeType` Paperless sends,
+  typically `image/webp`) followed by one `TextContent` with compact JSON
+  `{"id","title","created","correspondent","document_type","url"}`
+  (correspondent/document_type are ids; `url` only when `PAPERLESS_PUBLIC_URL`
+  is set). Thumbnails over 512 KB, and 403/404/network failures, return a
+  single `TextContent` holding the usual `{ok:false, error}` envelope instead.

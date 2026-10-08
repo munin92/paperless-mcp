@@ -1,6 +1,7 @@
 """Parity with barryw/PaperlessMCP v0.6.0: same 44 tool names, same parameter
 names per tool — ported from PaperlessMCP.Tests/Tools/ToolNamingTests.cs plus
 a parameter-name snapshot taken directly from each *Tools.cs signature.
+One extension on top: paperless_documents_thumbnail_image (45 in total).
 """
 
 import pytest
@@ -15,6 +16,7 @@ EXPECTED_TOOL_NAMES = {
     "paperless_documents_download",
     "paperless_documents_preview",
     "paperless_documents_thumbnail",
+    "paperless_documents_thumbnail_image",
     "paperless_documents_upload",
     "paperless_documents_upload_from_path",
     "paperless_documents_update",
@@ -70,6 +72,7 @@ EXPECTED_PARAMS: dict[str, set[str]] = {
     "paperless_documents_download": {"id", "returnBase64"},
     "paperless_documents_preview": {"id"},
     "paperless_documents_thumbnail": {"id"},
+    "paperless_documents_thumbnail_image": {"id"},
     "paperless_documents_upload": {
         "fileContent", "fileName", "title", "correspondent", "documentType", "storagePath",
         "tags", "archiveSerialNumber", "created",
@@ -128,8 +131,8 @@ def registered_tools():
     return asyncio.run(mcp.list_tools())
 
 
-def test_tool_count_is_44(registered_tools):
-    assert len(registered_tools) == 44
+def test_tool_count_is_45(registered_tools):
+    assert len(registered_tools) == 45
 
 
 def test_tool_names_match_barryw_paperlessmcp_v0_6_0(registered_tools):
