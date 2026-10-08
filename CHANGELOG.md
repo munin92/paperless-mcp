@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+* `paperless_documents_thumbnail_image`: returns the document thumbnail as an MCP image plus a compact JSON metadata block, fetched as the calling person (extension beyond the 44 upstream tools; the URL-only `paperless_documents_thumbnail` is unchanged).
+* Optional `PAPERLESS_PUBLIC_URL` for the metadata deep link.
+
 ## 0.1.1 (2026-09-22)
 
 ### Fixes

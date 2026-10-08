@@ -258,6 +258,15 @@ class PaperlessClient:
             suggested_name = disposition.split("filename=")[-1].strip('"; ')
         return resp.content, content_type, suggested_name
 
+    async def get_thumbnail(self, doc_id: int) -> tuple[bytes, str | None]:
+        """Returns (content, content_type) of the document's thumbnail."""
+        resp = await self._request("GET", f"/api/documents/{doc_id}/thumb/")
+        if resp.status_code >= 400:
+            raise PaperlessError(
+                f"HTTP {resp.status_code} fetching thumbnail of document {doc_id}", resp.status_code
+            )
+        return resp.content, resp.headers.get("content-type")
+
     # --- bulk operations ---------------------------------------------------
 
     async def bulk_edit_documents(

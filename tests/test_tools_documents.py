@@ -3,8 +3,10 @@ PaperlessMCP.Tests/Tools/DocumentToolsTests.cs (method/path/query/body, not
 the C# test names 1:1)."""
 
 import base64
+import json
 from urllib.parse import parse_qs, urlparse
 
+import httpx
 import pytest
 import respx
 from conftest import async_return
@@ -304,3 +306,117 @@ async def test_export_to_outbox_rejects_path_traversal_in_filename(tmp_path, mon
     result = await documents.paperless_documents_export_to_outbox(id=42, filename="../../etc/passwd")
     assert result["ok"] is True
     assert result["result"]["path"] == str(tmp_path / "passwd")
+
+
+# --- paperless_documents_thumbnail_image ---------------------------------
+
+THUMB = b"RIFF\x00\x00\x00\x00WEBPfake"
+
+
+@respx.mock
+async def test_thumbnail_image_returns_image_then_text(monkeypatch):
+    monkeypatch.setattr(documents.settings, "paperless_public_url", "https://docs.example.org/")
+    respx.get(f"{BASE}/api/documents/7/").mock(
+        return_value=Response(
+            200,
+            json={
+                "id": 7,
+                "title": "Rechnung",
+                "created": "2026-01-02",
+                "correspondent": 3,
+                "document_type": 4,
+            },
+        )
+    )
+    thumb = respx.get(f"{BASE}/api/documents/7/thumb/").mock(
+        return_value=Response(200, content=THUMB, headers={"content-type": "image/webp"})
+    )
+    blocks = await documents.paperless_documents_thumbnail_image(id=7)
+    assert [b.type for b in blocks] == ["image", "text"]
+    assert blocks[0].model_dump(by_alias=True)["mimeType"] == "image/webp"
+    assert base64.b64decode(blocks[0].data) == THUMB
+    assert json.loads(blocks[1].text) == {
+        "id": 7,
+        "title": "Rechnung",
+        "created": "2026-01-02",
+        "correspondent": 3,
+        "document_type": 4,
+        "url": "https://docs.example.org/documents/7/details",
+    }
+    assert thumb.calls.last.request.headers["authorization"] == "Token drf-token-bob"
+
+
+@respx.mock
+async def test_thumbnail_image_omits_url_without_public_url(monkeypatch):
+    monkeypatch.setattr(documents.settings, "paperless_public_url", "")
+    respx.get(f"{BASE}/api/documents/7/").mock(return_value=Response(200, json={"id": 7, "title": "t"}))
+    respx.get(f"{BASE}/api/documents/7/thumb/").mock(
+        return_value=Response(200, content=THUMB, headers={"content-type": "image/png"})
+    )
+    blocks = await documents.paperless_documents_thumbnail_image(id=7)
+    assert blocks[0].model_dump(by_alias=True)["mimeType"] == "image/png"
+    assert "url" not in json.loads(blocks[1].text)
+
+
+@respx.mock
+async def test_thumbnail_image_forbidden_returns_not_allowed_text():
+    respx.get(f"{BASE}/api/documents/7/").mock(return_value=Response(403))
+    blocks = await documents.paperless_documents_thumbnail_image(id=7)
+    assert [b.type for b in blocks] == ["text"]
+    assert json.loads(blocks[0].text)["error"]["code"] == ErrorCodes.NOT_ALLOWED
+
+
+@respx.mock
+async def test_thumbnail_image_missing_document_is_not_found():
+    respx.get(f"{BASE}/api/documents/9/").mock(return_value=Response(404))
+    blocks = await documents.paperless_documents_thumbnail_image(id=9)
+    assert [b.type for b in blocks] == ["text"]
+    assert json.loads(blocks[0].text)["error"]["code"] == ErrorCodes.NOT_FOUND
+
+
+@respx.mock
+async def test_thumbnail_image_thumb_404_is_not_found():
+    respx.get(f"{BASE}/api/documents/7/").mock(return_value=Response(200, json={"id": 7}))
+    respx.get(f"{BASE}/api/documents/7/thumb/").mock(return_value=Response(404))
+    blocks = await documents.paperless_documents_thumbnail_image(id=7)
+    assert json.loads(blocks[0].text)["error"]["code"] == ErrorCodes.NOT_FOUND
+
+
+@respx.mock
+async def test_thumbnail_image_size_guard():
+    respx.get(f"{BASE}/api/documents/7/").mock(return_value=Response(200, json={"id": 7}))
+    respx.get(f"{BASE}/api/documents/7/thumb/").mock(
+        return_value=Response(
+            200, content=b"x" * (documents.MAX_THUMBNAIL_BYTES + 1), headers={"content-type": "image/webp"}
+        )
+    )
+    blocks = await documents.paperless_documents_thumbnail_image(id=7)
+    assert [b.type for b in blocks] == ["text"]
+    assert json.loads(blocks[0].text)["error"]["code"] == ErrorCodes.VALIDATION
+
+
+@respx.mock
+async def test_thumbnail_image_network_error_is_clean_text():
+    respx.get(f"{BASE}/api/documents/7/").mock(side_effect=httpx.ConnectError("boom"))
+    blocks = await documents.paperless_documents_thumbnail_image(id=7)
+    assert [b.type for b in blocks] == ["text"]
+    assert json.loads(blocks[0].text)["error"]["code"] == ErrorCodes.UPSTREAM_ERROR
+
+
+@respx.mock
+async def test_thumbnail_image_wire_shape_through_mcp(monkeypatch):
+    """Through the real FastMCP call path: content list is image then text."""
+    from fastmcp import Client
+
+    from paperless_mcp_oidc.server import mcp
+
+    monkeypatch.setattr(documents.settings, "paperless_public_url", "")
+    respx.get(f"{BASE}/api/documents/7/").mock(return_value=Response(200, json={"id": 7, "title": "t"}))
+    respx.get(f"{BASE}/api/documents/7/thumb/").mock(
+        return_value=Response(200, content=THUMB, headers={"content-type": "image/webp"})
+    )
+    async with Client(mcp) as c:
+        res = await c.call_tool("paperless_documents_thumbnail_image", {"id": 7})
+    assert [b.type for b in res.content] == ["image", "text"]
+    assert res.content[0].model_dump(by_alias=True)["mimeType"] == "image/webp"
+    assert base64.b64decode(res.content[0].data) == THUMB
